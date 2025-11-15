@@ -54,7 +54,7 @@ def initialize_connection():
         separator = "&" if "?" in DB_PATH else "?"
         connection_path = f"{DB_PATH}{separator}session_hint={_replica_id}"
     
-    _conn = duckdb.connect(connection_path, read_only=True, config={'home_directory': '/tmp'})
+    _conn = duckdb.connect(connection_path, read_only=True)
     logger.info(f"🦆 Connected to MotherDuck with session_hint={_replica_id} ({READ_SCALING_REPLICAS} replicas available)")
 
 
