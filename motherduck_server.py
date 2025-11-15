@@ -55,9 +55,16 @@ def initialize_connection():
         connection_path = f"{DB_PATH}{separator}session_hint={_replica_id}"
     
     _conn = duckdb.connect(connection_path, read_only=True)
-    # Set home directory from environment variable (set during deployment)
-    home_dir = os.getenv("HOME")
-    _conn.execute(f"SET home_directory = '{home_dir}'")
+    # # Set home directory from environment variable (set during deployment)
+    # home_dir = os.getenv("HOME")
+    # if home_dir:
+    #     _conn.execute(f"SET home_directory = '{home_dir}'")
+    #     # Set secret and extension directories relative to home directory
+    #     secret_dir = os.path.join(home_dir, "secrets")
+    #     _conn.execute(f"SET secret_directory = '{secret_dir}'")
+    #     extension_dir = os.path.join(home_dir, "extensions")
+    #     _conn.execute(f"SET extension_directory = '{extension_dir}'")
+    
     logger.info(f"🦆 Connected to MotherDuck with session_hint={_replica_id} ({READ_SCALING_REPLICAS} replicas available)")
 
 
@@ -165,13 +172,16 @@ def get_guide() -> str:
         return f"❌ Error reading guide: {str(e)}"
 
 
-# Initialize connection on module load
-initialize_connection()
-logger.info("🚀 MotherDuck MCP Server ready!")
-logger.info(f"📊 Configuration:")
-logger.info(f"  • Database: {DB_PATH}")
-logger.info(f"  • Read replicas: {READ_SCALING_REPLICAS}")
-logger.info(f"  • Session hint: {_replica_id} (range: 1-{SESSION_HINT_RANGE})")
-logger.info(f"  • Query timeout: {QUERY_TIMEOUT}s")
-logger.info(f"  • Max rows: {MAX_ROWS}")
-logger.info(f"  • Max chars: {MAX_CHARS:,}")
+def create_server() -> FastMCP:
+    """Create the server"""
+    initialize_connection()
+    logger.info("🚀 MotherDuck MCP Server ready!")
+    logger.info(f"📊 Configuration:")
+    logger.info(f"  • Database: {DB_PATH}")
+    logger.info(f"  • Read replicas: {READ_SCALING_REPLICAS}")
+    logger.info(f"  • Session hint: {_replica_id} (range: 1-{SESSION_HINT_RANGE})")
+    logger.info(f"  • Query timeout: {QUERY_TIMEOUT}s")
+    logger.info(f"  • Max rows: {MAX_ROWS}")
+    logger.info(f"  • Max chars: {MAX_CHARS:,}")
+
+    return mcp
