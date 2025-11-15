@@ -14,7 +14,7 @@
         "--host",
         "0.0.0.0",
         "--db-path",
-        "md:antm-hack"
+        "md:antm_hack"
       ],
       "env": {
         "motherduck_token": "${MOTHERDUCK_TOKEN}"
