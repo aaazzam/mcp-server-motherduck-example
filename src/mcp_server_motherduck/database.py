@@ -256,3 +256,77 @@ class DatabaseClient:
 
         except Exception as e:
             raise ValueError(f"❌ Error executing query: {e}")
+    
+    def query_with_params(self, query: str, params: list) -> str:
+        """Execute a parameterized query with prepared statements"""
+        try:
+            return self._execute_with_params(query, params)
+        except Exception as e:
+            raise ValueError(f"❌ Error executing query: {e}")
+    
+    def _execute_with_params(self, query: str, params: list) -> str:
+        """Execute a parameterized query with prepared statements"""
+        # Get connection to use
+        if self.conn is None:
+            conn = duckdb.connect(
+                self.db_path,
+                config={"custom_user_agent": f"mcp-server-motherduck/{SERVER_VERSION}"},
+                read_only=self._read_only,
+            )
+        else:
+            conn = self.conn
+        
+        # Execute with or without timeout
+        if self._query_timeout > 0:
+            rows, has_more_rows, headers = self._execute_with_timeout_and_params(conn, query, params)
+        else:
+            rows, has_more_rows, headers = self._execute_direct_with_params(conn, query, params)
+        
+        # Close connection if it was temporary
+        if self.conn is None:
+            conn.close()
+        
+        returned_rows = len(rows)
+        
+        # Format results as table
+        out = tabulate(rows, headers=headers, tablefmt="pretty")
+        
+        # Apply character limit if output is too long
+        char_truncated = len(out) > self._max_chars
+        if char_truncated:
+            out = out[:self._max_chars]
+        
+        # Add informative feedback message
+        if has_more_rows:
+            out += f"\n\n⚠️  Showing first {returned_rows} rows."
+        elif char_truncated:
+            out += f"\n\n⚠️  Output truncated at {self._max_chars:,} characters."
+
+        return out
+    
+    def _execute_direct_with_params(self, conn, query: str, params: list) -> tuple:
+        """Execute parameterized query without timeout"""
+        q = conn.execute(query, params)
+        rows = q.fetchmany(self._max_rows)
+        has_more_rows = q.fetchone() is not None
+        headers = [d[0] + "\n" + str(d[1]) for d in q.description]
+        return rows, has_more_rows, headers
+    
+    def _execute_with_timeout_and_params(self, conn, query: str, params: list) -> tuple:
+        """Execute parameterized query with timeout using threading.Timer and conn.interrupt()"""
+        timer = threading.Timer(self._query_timeout, conn.interrupt)
+        timer.start()
+        
+        try:
+            q = conn.execute(query, params)
+            rows = q.fetchmany(self._max_rows)
+            has_more_rows = q.fetchone() is not None
+            headers = [d[0] + "\n" + str(d[1]) for d in q.description]
+            return rows, has_more_rows, headers
+        except duckdb.InterruptException:
+            raise ValueError(
+                f"Query execution timed out after {self._query_timeout} seconds. "
+                f"Increase timeout with --query-timeout argument when starting the mcp server."
+            )
+        finally:
+            timer.cancel()

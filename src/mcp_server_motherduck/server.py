@@ -7,6 +7,7 @@ from mcp.server.models import InitializationOptions
 from .configs import SERVER_VERSION
 from .database import DatabaseClient
 from .prompt import PROMPT_TEMPLATE
+import os
 
 
 logger = logging.getLogger("mcp_server_motherduck")
@@ -105,7 +106,7 @@ def build_application(
         return [
             types.Tool(
                 name="query",
-                description="Use this to execute a query on the MotherDuck or DuckDB database",
+                description="Use this to execute a query on the MotherDuck database",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -115,6 +116,36 @@ def build_application(
                         },
                     },
                     "required": ["query"],
+                },
+            ),
+            types.Tool(
+                name="list_databases",
+                description="List all databases available in the MotherDuck account",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            types.Tool(
+                name="show_tables",
+                description="Show all tables in a specific database",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "database_name": {
+                            "type": "string",
+                            "description": "The name of the database to list tables from",
+                        },
+                    },
+                    "required": ["database_name"],
+                },
+            ),
+            types.Tool(
+                name="get_guide",
+                description="Get the DuckDB SQL query syntax and performance guide with tips and best practices",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
                 },
             ),
         ]
@@ -136,6 +167,34 @@ def build_application(
                     ]
                 tool_response = db_client.query(arguments["query"])
                 return [types.TextContent(type="text", text=str(tool_response))]
+            
+            if name == "list_databases":
+                tool_response = db_client.query("SHOW ALL DATABASES")
+                return [types.TextContent(type="text", text=str(tool_response))]
+            
+            if name == "show_tables":
+                if arguments is None or "database_name" not in arguments:
+                    return [
+                        types.TextContent(type="text", text="Error: database_name parameter is required")
+                    ]
+                database_name = arguments["database_name"]
+                tool_response = db_client.query_with_params(
+                    "SELECT * FROM duckdb_tables() WHERE database_name = ?",
+                    [database_name]
+                )
+                return [types.TextContent(type="text", text=str(tool_response))]
+            
+            if name == "get_guide":
+                try:
+                    # Get the path to the query_guide.md file
+                    guide_path = os.path.join(os.path.dirname(__file__), "query_guide.md")
+                    with open(guide_path, "r", encoding="utf-8") as f:
+                        guide_content = f.read()
+                    return [types.TextContent(type="text", text=guide_content)]
+                except FileNotFoundError:
+                    return [types.TextContent(type="text", text="Error: Query guide file not found")]
+                except Exception as e:
+                    return [types.TextContent(type="text", text=f"Error reading guide: {str(e)}")]
 
             return [types.TextContent(type="text", text=f"Unsupported tool: {name}")]
 
