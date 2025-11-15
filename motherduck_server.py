@@ -55,7 +55,9 @@ def initialize_connection():
         connection_path = f"{DB_PATH}{separator}session_hint={_replica_id}"
     
     _conn = duckdb.connect(connection_path, read_only=True)
-    _conn.execute("SET home_directory = '/tmp/informal-apricot-toad'")
+    # Set home directory from environment variable (set during deployment)
+    home_dir = os.getenv("HOME")
+    _conn.execute(f"SET home_directory = '{home_dir}'")
     logger.info(f"🦆 Connected to MotherDuck with session_hint={_replica_id} ({READ_SCALING_REPLICAS} replicas available)")
 
 
