@@ -44,7 +44,7 @@ logging.basicConfig(
 @click.option(
     "--read-only",
     is_flag=True,
-    help="Flag for connecting to DuckDB in read-only mode. Only supported for local DuckDB databases. Also makes use of short lived connections so multiple MCP clients or other systems can remain active (though each operation must be done sequentially).",
+    help="Flag for connecting to DuckDB/MotherDuck in read-only mode. For MotherDuck, enables read scaling with a connection pool distributed across replicas.",
 )
 @click.option(
     "--json-response",
@@ -70,6 +70,12 @@ logging.basicConfig(
     default=-1,
     help="(Default: `-1`) Query execution timeout in seconds. Set to -1 to disable timeout.",
 )
+@click.option(
+    "--read-scaling-replicas",
+    type=int,
+    default=4,
+    help="(Default: `4`) Number of read scaling replicas to distribute load across when using a read scaling token in read-only mode.",
+)
 def main(
     port,
     host,
@@ -83,6 +89,7 @@ def main(
     max_rows,
     max_chars,
     query_timeout,
+    read_scaling_replicas,
 ):
     """Main entry point for the package."""
 
@@ -93,6 +100,8 @@ def main(
         logger.info("Query timeout: disabled")
     else:
         logger.info(f"Query timeout: {query_timeout}s")
+    if read_only:
+        logger.info(f"Read scaling: enabled with {read_scaling_replicas} replicas")
 
     app, init_opts = build_application(
         db_path=db_path,
@@ -103,6 +112,7 @@ def main(
         max_rows=max_rows,
         max_chars=max_chars,
         query_timeout=query_timeout,
+        read_scaling_replicas=read_scaling_replicas,
     )
 
     if transport == "sse":

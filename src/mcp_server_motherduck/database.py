@@ -4,6 +4,7 @@ from typing import Literal, Optional
 from tabulate import tabulate
 import logging
 import threading
+import random
 from .configs import SERVER_VERSION
 
 logger = logging.getLogger("mcp_server_motherduck")
@@ -20,11 +21,13 @@ class DatabaseClient:
         max_rows: int = 1024,
         max_chars: int = 50000,
         query_timeout: int = -1,
+        read_scaling_replicas: int = 4,
     ):
         self._read_only = read_only
         self._max_rows = max_rows
         self._max_chars = max_chars
         self._query_timeout = query_timeout
+        self._read_scaling_replicas = read_scaling_replicas
         self.db_path, self.db_type = self._resolve_db_path_type(
             db_path, motherduck_token, saas_mode
         )
@@ -34,8 +37,34 @@ class DatabaseClient:
         if home_dir:
             os.environ["HOME"] = home_dir
 
-        self.conn = self._initialize_connection()
+        # Initialize connection or connection pool
+        if self._read_only and self.db_type == "motherduck":
+            # Create connection pool for read scaling
+            self.conn = None
+            self.conn_pool = self._initialize_connection_pool()
+            logger.info(f"🔌 Created connection pool with {len(self.conn_pool)} replicas for read scaling")
+        else:
+            self.conn = self._initialize_connection()
+            self.conn_pool = None
 
+    def _initialize_connection_pool(self) -> list[duckdb.DuckDBPyConnection]:
+        """Initialize a pool of connections for read scaling"""
+        pool = []
+        for i in range(1, self._read_scaling_replicas + 1):
+            # Add session_hint to connection string
+            separator = "&" if "?" in self.db_path else "?"
+            connection_path = f"{self.db_path}{separator}session_hint={i}"
+            
+            conn = duckdb.connect(
+                connection_path,
+                config={"custom_user_agent": f"mcp-server-motherduck/{SERVER_VERSION}"},
+                read_only=self._read_only,
+            )
+            pool.append(conn)
+            logger.info(f"  ✓ Connected to replica {i}/{self._read_scaling_replicas}")
+        
+        return pool
+    
     def _initialize_connection(self) -> Optional[duckdb.DuckDBPyConnection]:
         """Initialize connection to the MotherDuck or DuckDB database"""
 
@@ -184,16 +213,25 @@ class DatabaseClient:
 
         return db_path, "duckdb"
 
-    def _execute(self, query: str) -> str:
-        # Get connection to use
-        if self.conn is None:
-            conn = duckdb.connect(
+    def _get_connection(self) -> duckdb.DuckDBPyConnection:
+        """Get a connection from the pool or return the single connection"""
+        if self.conn_pool:
+            # Pick a random connection from the pool
+            return random.choice(self.conn_pool)
+        elif self.conn:
+            return self.conn
+        else:
+            # Fallback: create a temporary connection
+            return duckdb.connect(
                 self.db_path,
                 config={"custom_user_agent": f"mcp-server-motherduck/{SERVER_VERSION}"},
                 read_only=self._read_only,
             )
-        else:
-            conn = self.conn
+    
+    def _execute(self, query: str) -> str:
+        # Get connection to use
+        conn = self._get_connection()
+        should_close = not (self.conn or self.conn_pool)
         
         # Execute with or without timeout
         if self._query_timeout > 0:
@@ -201,8 +239,8 @@ class DatabaseClient:
         else:
             rows, has_more_rows, headers = self._execute_direct(conn, query)
         
-        # Close connection if it was temporary
-        if self.conn is None:
+        # Close connection if it was temporary (fallback case)
+        if should_close:
             conn.close()
         
         returned_rows = len(rows)
@@ -267,14 +305,8 @@ class DatabaseClient:
     def _execute_with_params(self, query: str, params: list) -> str:
         """Execute a parameterized query with prepared statements"""
         # Get connection to use
-        if self.conn is None:
-            conn = duckdb.connect(
-                self.db_path,
-                config={"custom_user_agent": f"mcp-server-motherduck/{SERVER_VERSION}"},
-                read_only=self._read_only,
-            )
-        else:
-            conn = self.conn
+        conn = self._get_connection()
+        should_close = not (self.conn or self.conn_pool)
         
         # Execute with or without timeout
         if self._query_timeout > 0:
@@ -282,8 +314,8 @@ class DatabaseClient:
         else:
             rows, has_more_rows, headers = self._execute_direct_with_params(conn, query, params)
         
-        # Close connection if it was temporary
-        if self.conn is None:
+        # Close connection if it was temporary (fallback case)
+        if should_close:
             conn.close()
         
         returned_rows = len(rows)
