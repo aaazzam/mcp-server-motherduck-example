@@ -98,7 +98,7 @@
           "type": "named",
           "name": "--query-timeout",
           "description": "Query execution timeout in seconds. Set to -1 to disable timeout",
-          "default": "-1",
+          "default": "300",
           "format": "number",
           "isRequired": false
         }
